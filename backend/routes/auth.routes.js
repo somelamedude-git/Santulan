@@ -1,7 +1,13 @@
 const express = require('express')
 const router = express.Router()
-const {login} = require('../controllers/auth.controllers')
+const {multi_purpose_login} = require('../controllers/auth.controllers.js');
+const { refresh } = require('../utils/tokens.utils.js');
+const { profile_addict, profile_member } = require('../controllers/users.controllers.js');
+const {verifyJWT} = require('../middlewares/auth.middlewares.js');
 
-router.post('/login', login)
+router.post('/login', multi_purpose_login);
+router.post('/refresh', refresh);
+router.get('/profile_a', verifyJWT, profile_addict);
+router.get('/profile_b', verifyJWT, profile_member);
 
 module.exports = router

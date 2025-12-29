@@ -1,33 +1,52 @@
-const {Addict} = require('../models/Users.models')
-const {generateAccessToken, generateRefreshAccessToken} = require('../utils/tokens.utils')
+const {User, Addict, Family} = require('../models/Users.models')
 const bcrypt = require('bcrypt');
+const { generateAccessToken, generateRefreshAccessToken, hashRefreshToken } = require('../utils/tokens.utils');
 
-const login = async (req, res) => {
-    try {
-        const {phone, email, password} = req.body;
-        const addict = await Addict.findOne({phone, email})
+const multi_purpose_login = async(req, res)=>{
+	let {phone, email, password} = req.body;
+	try{
+		if(email){email = email.toLowerCase().trim()};
+		let query = {};
 
-        if(!addict) 
-            return res.status(404).json({status: false, message: "User not found"})
-            const match =await bcrypt.compare(password, addict.password)
-        if(!match)
-            return res.status(401).json({status: false, message: "Invalid password"})
+		if(email && phone){
+			query = {$or: [{phone: phone}, {email:email}]};
+		}
+		else if(email){
+			query = {email: email};
+		}
+		else{
+			query = {phone:phone};
+		}
 
-        const accesstoken = generateAccessToken(addict)
-        const refreshaccesstoken = generateRefreshAccessToken(addict)
+		const user = await User.findOne(query);
+		if(!user) return res.status(401).json({success: false, message: "Invalid credentials"});
+		password = password.trim();
+		const is_correct = await bcrypt.compare(password, user.password);
 
-        addict.refreshtoken.push({ token: refreshaccesstoken });
-        await addict.save()
+		if(!is_correct) return res.status(401).json({success: false, message: "Invalid credentials"});
+		const role = user.role;
 
-        const userData = addict.toObject();
+		const access_token = generateAccessToken(user);
+		const refresh_token = generateRefreshAccessToken(user);
+		const hashed_refresh_token = await hashRefreshToken(refresh_token);
 
-        return res.status(200).json({status: true, accesstoken, userData});
-    } catch (err) {
-        console.log(err)
-        return res.status(500).json({status:false, message: "Internal server error"})
-    }
+		user.refreshtoken = hashed_refresh_token;
+		await user.save();
+
+		return res.status(200).json({
+			success: true,
+			message: "Logged in",
+			role: role,
+			refreshToken : refresh_token,
+			accessToken: access_token
+		});
+	}
+	catch(err){
+		console.log(err);
+		return res.status(500).json({success: false, message: "Internal server error"});
+	}
 }
 
 module.exports = {
-    login
+	multi_purpose_login
 }
