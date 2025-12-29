@@ -1,14 +1,15 @@
-const {Addict} = require('../models/Users.models')
+const {generate} = require('../utils/generateques.utils')
 const {Test} = require('../models/Test.models')
+const {scoreanswer} = require('../utils/testcheck.utils');
+const { Addict } = require('../models/Users.models');
 
 const requesttest = async(req, res) => {
     try {
-        const {phone} = req.body;
-        const user = await Addict.findOne({phone})
-        if(!user || !phone)
+        const {user_id} = req.params;
+        if(!user_id)
             return res.status(404).json({status: false, message: "User not found"})
 
-        const test = new Test({alcoholic_id: user._id});
+        const test = new Test({alcoholic_id: user_id});
         await test.save()
 
         return res.status(200).json({status: true, test});
@@ -20,11 +21,11 @@ const requesttest = async(req, res) => {
 
 const givetest = async(req, res) => {
     try {
-        const {id} = req.body
+        const id = req.user_id;
 
         const user = await Addict.findById(id);
         if(!user || !id)
-            return res.status(404).json({status: false, message: "User not found"})
+            return res.status(404).json({success: false, message: "User not found"})
 
         const testd = await Test.findOne({alcoholic_id: id}).sort({createdAt: -1})
         const createdAt = new Date(testd.createdAt)
@@ -33,7 +34,7 @@ const givetest = async(req, res) => {
         const is30MinPassed = (now - createdAt) >= THIRTY_MINUTES;
 
         if(is30MinPassed)
-            return res.status(401).json({status: false, message: "Time to give the test exceeded"})
+            return res.status(401).json({success: false, message: "Time to give the test exceeded"})
 
         const test = await generate();
         if(!test.questions || test.questions.length !== 5)
@@ -45,7 +46,84 @@ const givetest = async(req, res) => {
     }
 }
 
+const fetch_past_results = async(req, res)=>{
+	let {limit} = req.query;
+	limit = Math.min(Number(limit)||5, 10);
+	const user_id = req.user_id;
+	try{
+		const test_results = await Test.find({alcoholic_id:user_id}).sort({createdAt:-1}).limit(limit);
+		return res.status(200).json({
+			success: true,
+			test_results: test_results,
+		});
+	}
+	catch(err){
+		console.log(err);
+		return res.status(500).json({
+			success: false,
+			message: "Couldn't fetch results, try again"
+		});
+	}
+}
+
+const submitanswer = async(req, res) => {
+    try {
+	const id = req.user_id;
+        const {answer, question} = req.body;
+        const user = await Addict.findById(id)
+        if(!id || !user || !answer || !question)
+            return res.status(404).json({status: false, message: "User not found"})
+
+        const test = await Test.findOne({alcoholic_id: id}).sort({createdAt:-1})
+        if(!test || test.attempted) 
+            return res.status(404).json({status: false, message: "No test requested"})
+
+        let nanswer = await scoreanswer(question, answer)
+
+        if (!Array.isArray(nanswer)) nanswer = [nanswer]
+
+        let sum = 0;
+        nanswer.forEach((ans, id) => {
+            sum += ans.score
+        })
+
+        test.logical_reasoning_score += sum;
+
+        await test.save()
+        return res.status(200).json({status: true, nanswer, sum})
+
+    } catch (err) {
+        console.log(err)
+        return res.status(500).json({status: false, message: "Internal server error"})
+    }
+}
+
+const storetest = async(req, res) => {
+    try {
+        const id = req.user_id;
+        const user = await Addict.findById(id)
+        
+        if(!user || !id)
+            return res.status(404).json({status: false, message: "User not found"})
+
+        const test = await Test.findOne({alcoholic_id: id}).sort({createdAt:-1})
+        if(!test || test.attempted)
+            return res.status(401).json({status: false, message: "Test not available"})
+
+        test.attempted = true
+        await test.save()
+
+        return res.status(200).json({status: true, test})
+    } catch(err) {
+        console.log(err)
+        return res.status(500).json({status: false, message: "Internal server error"})
+    }
+}
+
 module.exports = {
     requesttest,
-    givetest
+    givetest,
+    fetch_past_results,
+    submitanswer,
+    storetest
 }
